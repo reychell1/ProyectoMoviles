@@ -1,71 +1,206 @@
 import React from 'react';
-import { Text, View, TouchableOpacity, SafeAreaView } from 'react-native';
-import { styled } from 'nativewind';
-import { DiceValues } from '@dado-triple/shared-types';
-
-const StyledView = styled(View);
-const StyledText = styled(Text);
-const StyledTouchableOpacity = styled(TouchableOpacity);
-const StyledSafeAreaView = styled(SafeAreaView);
+import { View, Text, SafeAreaView, StyleSheet } from 'react-native';
+import {
+  type DiceValues,
+  type GameState,
+  type RoundResultPayload,
+} from '@dado-triple/shared-types';
+import {
+  DiceDisplay,
+  PlayerCard,
+  MyScore,
+  RollButton,
+  ByeScreen,
+  RoundResultModal,
+  colors,
+  spacing,
+} from '@dado-triple/ui';
 
 interface GameScreenProps {
   dice: DiceValues | null;
-  score: number | null;
   isReady: boolean;
   onRollDice: () => void;
+  gameState?: GameState | null;
+  playerId?: string | null;
+  byePlayerId?: string | null;
+  roundResult?: RoundResultPayload | null;
+  onDismissResult?: () => void;
+  /** @deprecated Score derivado de gameState. Mantenido para compatibilidad con tests. */
+  score?: number | null;
 }
 
-export const GameScreen: React.FC<GameScreenProps> = ({ 
-  dice, 
-  score, 
-  isReady, 
-  onRollDice 
+export const GameScreen: React.FC<GameScreenProps> = ({
+  dice,
+  isReady,
+  onRollDice,
+  gameState = null,
+  playerId = null,
+  byePlayerId = null,
+  roundResult = null,
+  onDismissResult = () => {},
 }) => {
+  // ── Jugador actual y oponente ──────────────────────────────────────────────
+  const me = gameState?.players.find((p) => p.id === playerId) ?? null;
+
+  const myPair =
+    gameState?.pairs.find(
+      (pair) => pair.player1Id === playerId || pair.player2Id === playerId,
+    ) ?? null;
+
+  const opponentId = myPair
+    ? myPair.player1Id === playerId
+      ? myPair.player2Id
+      : myPair.player1Id
+    : null;
+
+  const opponent = opponentId
+    ? (gameState?.players.find((p) => p.id === opponentId) ?? null)
+    : null;
+
+  // ── ¿Jugador en descanso? ──────────────────────────────────────────────────
+  const isOnBye = playerId !== null && byePlayerId === playerId;
+
+  // ── Datos para el modal de resultado ──────────────────────────────────────
+  const resultP1 = roundResult
+    ? (gameState?.players.find((p) => p.id === roundResult.pair.player1Id) ?? null)
+    : null;
+  const resultP2 = roundResult
+    ? (gameState?.players.find((p) => p.id === roundResult.pair.player2Id) ?? null)
+    : null;
+  const resultWinner = roundResult?.winnerId
+    ? (gameState?.players.find((p) => p.id === roundResult.winnerId) ?? null)
+    : null;
+
+  const outcome =
+    roundResult === null           ? 'draw'  :
+    roundResult.winnerId === null  ? 'draw'  :
+    roundResult.winnerId === playerId ? 'win' : 'lose';
+
   return (
-    <StyledView className="flex-1 bg-slate-900 items-center justify-center">
-      <StyledSafeAreaView className="w-full flex items-center">
-        <StyledText className="text-4xl font-bold text-blue-500 mb-10">Dado Triple Mobile</StyledText>
-        
-        <StyledView className="bg-slate-800 p-8 rounded-3xl border border-slate-700 items-center shadow-xl w-10/12">
-          <StyledView className="flex-row gap-4 mb-10">
-            {dice ? dice.map((value, i) => (
-              <StyledView key={i} className="w-16 h-16 bg-white rounded-2xl items-center justify-center shadow-lg">
-                <StyledText className="text-slate-900 text-3xl font-black">{value}</StyledText>
-              </StyledView>
-            )) : (
-              [1, 2, 3].map((_, i) => (
-                <StyledView key={i} className="w-16 h-16 bg-slate-700 rounded-2xl opacity-50" />
-              ))
-            )}
-          </StyledView>
+    <View style={styles.root}>
+      <SafeAreaView style={styles.safeArea}>
 
-          {score !== null && (
-            <StyledView className="items-center mb-10">
-              <StyledText className="text-emerald-400 text-2xl font-bold">Puntos: {score}</StyledText>
-            </StyledView>
-          )}
-
-          <StyledTouchableOpacity
-            onPress={onRollDice}
-            disabled={!isReady}
-            className={`px-10 py-5 rounded-full shadow-lg w-full items-center ${isReady ? 'bg-blue-600 active:bg-blue-700' : 'bg-slate-600 opacity-50'}`}
-          >
-            <StyledText className="text-white text-xl font-black uppercase tracking-widest">
-              Lanzar Dados
-            </StyledText>
-          </StyledTouchableOpacity>
-        </StyledView>
-
-        {!isReady && (
-          <StyledText className="mt-4 text-amber-400 font-bold">
-            Espera tu turno...
-          </StyledText>
+        {/* Encabezado */}
+        <Text style={styles.title}>Dado Triple</Text>
+        {gameState && (
+          <Text style={styles.roundLabel}>
+            Ronda {gameState.round} / {gameState.maxRounds}
+          </Text>
         )}
 
-        <StyledText className="mt-10 text-slate-500 text-center px-4">
+        {/* Pantalla de Descanso (Bye) */}
+        {isOnBye ? (
+          <ByeScreen />
+        ) : (
+          <View style={styles.gameArea}>
+
+            {/* Tarjeta del oponente */}
+            {opponent ? (
+              <PlayerCard
+                name={opponent.name}
+                score={opponent.score}
+                variant="opponent"
+                label="Oponente"
+              />
+            ) : (
+              gameState?.status === 'playing' && (
+                <View style={styles.searchingCard}>
+                  <Text style={styles.searchingText}>Buscando oponente...</Text>
+                </View>
+              )
+            )}
+
+            {/* Área de dados */}
+            <View style={styles.diceCard}>
+              {me && <MyScore name={me.name} score={me.score} />}
+
+              <DiceDisplay dice={dice} />
+
+              <RollButton onPress={onRollDice} disabled={!isReady} />
+            </View>
+
+            {!isReady && (
+              <Text style={styles.waitText}>Espera tu turno...</Text>
+            )}
+          </View>
+        )}
+
+        <Text style={styles.rules}>
           Reglas: Trío (+100), Par (+50), Suma simple.
-        </StyledText>
-      </StyledSafeAreaView>
-    </StyledView>
+        </Text>
+      </SafeAreaView>
+
+      {/* Modal de Resultado de Ronda */}
+      <RoundResultModal
+        visible={roundResult !== null}
+        player1Name={resultP1?.name ?? 'Jugador 1'}
+        player2Name={resultP2?.name ?? 'Jugador 2'}
+        score1={roundResult?.scores.player1 ?? 0}
+        score2={roundResult?.scores.player2 ?? 0}
+        outcome={outcome}
+        winnerName={resultWinner?.name ?? roundResult?.winnerId ?? undefined}
+        onDismiss={onDismissResult}
+      />
+    </View>
   );
 };
+
+const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+    backgroundColor: colors.surface.bg,
+  },
+  safeArea: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.lg,
+  },
+  title: {
+    fontSize: 36,
+    fontWeight: 'bold',
+    color: colors.primary,
+    marginBottom: spacing.xs,
+  },
+  roundLabel: {
+    fontSize: 13,
+    color: colors.text.secondary,
+    marginBottom: spacing.xl,
+  },
+  gameArea: {
+    width: '100%',
+  },
+  diceCard: {
+    backgroundColor: colors.surface.card,
+    borderWidth: 1,
+    borderColor: colors.surface.border,
+    borderRadius: 24,
+    padding: spacing.xl,
+    alignItems: 'center',
+  },
+  searchingCard: {
+    backgroundColor: colors.surface.card,
+    borderWidth: 1,
+    borderColor: colors.surface.border,
+    borderRadius: 16,
+    padding: spacing.lg,
+    marginBottom: spacing.md,
+    alignItems: 'center' as const,
+  },
+  searchingText: {
+    fontSize: 13,
+    color: colors.text.muted,
+  },
+  waitText: {
+    marginTop: spacing.md,
+    color: colors.text.warning,
+    fontWeight: 'bold',
+    textAlign: 'center',
+  },
+  rules: {
+    marginTop: spacing.xl,
+    color: colors.surface.muted,
+    fontSize: 12,
+    textAlign: 'center',
+  },
+});

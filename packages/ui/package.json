@@ -1,0 +1,21 @@
+{
+  "name": "@dado-triple/ui",
+  "version": "1.0.0",
+  "private": true,
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "lint": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "react": ">=18.2.0",
+    "react-native": ">=0.73.0"
+  },
+  "devDependencies": {
+    "@dado-triple/shared-types": "workspace:*",
+    "@dado-triple/typescript-config": "workspace:*",
+    "@types/react": "~18.2.45",
+    "@types/react-native": "~0.73.0",
+    "typescript": "latest"
+  }
+}

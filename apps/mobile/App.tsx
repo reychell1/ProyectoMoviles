@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,7 @@ import {
 import {
   SocketEvents,
   type GameState,
+  type DiceValues,
   type DiceRolledPayload,
   type PlayerJoinedPayload,
   type PairsAssignedPayload,
@@ -24,6 +25,7 @@ import {
   createRealtimeClient,
   type RealtimeClient,
 } from './src/lib/realtime-client';
+import { GameScreen } from './src/components/GameScreen';
 
 const REALTIME_TRANSPORT: RealtimeTransport =
   process.env.EXPO_PUBLIC_REALTIME_TRANSPORT === 'websocket' ? 'websocket' : 'socket.io';
@@ -45,11 +47,23 @@ export default function App() {
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
 
+  // ── Estado para las 3 nuevas features de GameScreen ─────────────────────
+  const [lastDice, setLastDice] = useState<DiceValues | null>(null);
+  const [byePlayerId, setByePlayerId] = useState<string | null>(null);
+  const [roundResult, setRoundResult] = useState<RoundResultPayload | null>(null);
+
   const logsRef = useRef<ScrollView>(null);
+  // Ref estable para acceder a playerId dentro de los event listeners del socket
+  const playerIdRef = useRef<string | null>(null);
 
   const addLog = useCallback((entry: string) => {
     setLogs((prev) => [...prev, `[${timestamp()}] ${entry}`]);
   }, []);
+
+  // Mantener el ref sincronizado con el state
+  useEffect(() => {
+    playerIdRef.current = playerId;
+  }, [playerId]);
 
   useEffect(() => {
     const client = createRealtimeClient({
@@ -81,15 +95,27 @@ export default function App() {
         addLog('GAME_START');
       }),
       client.on(SocketEvents.PAIRS_ASSIGNED, (data: PairsAssignedPayload) => {
+        // Actualizar bye y limpiar dados del round anterior
+        setByePlayerId(data.bye);
+        setLastDice(null);
         const pairStr = data.pairs
           .map((p) => `${p.player1Id} vs ${p.player2Id}`)
           .join(', ');
         addLog(`PAIRS_ASSIGNED ronda ${data.round}: ${pairStr}${data.bye ? ` | bye: ${data.bye}` : ''}`);
       }),
       client.on(SocketEvents.DICE_ROLLED, (data: DiceRolledPayload) => {
+        // Solo guardar los dados del jugador actual
+        if (data.playerId === playerIdRef.current) {
+          setLastDice(data.dice);
+        }
         addLog(`DICE_ROLLED: [${data.dice.join(',')}] combo=${data.combo} score=${data.score} (player: ${data.playerId})`);
       }),
       client.on(SocketEvents.ROUND_RESULT, (data: RoundResultPayload) => {
+        // Mostrar el modal solo si el resultado corresponde al jugador actual
+        const pid = playerIdRef.current;
+        if (pid && (data.pair.player1Id === pid || data.pair.player2Id === pid)) {
+          setRoundResult(data);
+        }
         addLog(`ROUND_RESULT: ${data.scores.player1} vs ${data.scores.player2} -> ganador: ${data.winnerId ?? 'empate'}`);
       }),
       client.on(SocketEvents.GAME_UPDATE, (data: GameUpdatePayload) => {
@@ -144,9 +170,38 @@ export default function App() {
     }
   }, [gameState, username, playerId, addLog]);
 
+  // ── Derivar si el jugador puede lanzar dados ───────────────────────────────
+  const myPlayer = gameState?.players.find((p) => p.id === playerId) ?? null;
+  const canRoll = gameState?.status === 'playing' && myPlayer !== null;
+
+  // ── Vista de juego activo (playing / finished) ─────────────────────────────
+  if (playerId && gameState && (gameState.status === 'playing' || gameState.status === 'finished')) {
+    return (
+      <View style={{ flex: 1 }}>
+        <GameScreen
+          dice={lastDice}
+          isReady={canRoll}
+          onRollDice={rollDice}
+          gameState={gameState}
+          playerId={playerId}
+          byePlayerId={byePlayerId}
+          roundResult={roundResult}
+          onDismissResult={() => setRoundResult(null)}
+        />
+        {/* Barra de estado mínima */}
+        <View style={styles.statusBar}>
+          <Text style={styles.statusBarText}>
+            {isConnected ? '● ONLINE' : '○ OFFLINE'} · Sala: {ROOM_ID}
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
+  // ── Vista de lobby / conexión ──────────────────────────────────────────────
   return (
     <SafeAreaView style={styles.container}>
-      <Text style={styles.title}>Dado Triple - Debug UI</Text>
+      <Text style={styles.title}>Dado Triple - Lobby</Text>
       <Text style={styles.status}>
         Socket: {isConnected ? 'CONECTADO' : 'DESCONECTADO'} | Modo: {REALTIME_TRANSPORT.toUpperCase()} | ID: {connectionId ?? '-'}
       </Text>
@@ -171,24 +226,17 @@ export default function App() {
             <View style={styles.btnWrap}>
               <Button title="Estoy Listo" onPress={markReady} />
             </View>
-            <View style={styles.btnWrap}>
-              <Button title="Lanzar Dados" onPress={rollDice} />
-            </View>
           </View>
+          {gameState && (
+            <Text style={styles.mono}>
+              Estado: {gameState.status} | Ronda: {gameState.round}/{gameState.maxRounds}
+            </Text>
+          )}
         </View>
       )}
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>3. GameState (raw)</Text>
-        <ScrollView style={styles.rawBox} nestedScrollEnabled>
-          <Text style={styles.mono}>
-            {gameState ? JSON.stringify(gameState, null, 2) : '(sin estado aun)'}
-          </Text>
-        </ScrollView>
-      </View>
-
       <View style={[styles.section, styles.logsSection]}>
-        <Text style={styles.sectionTitle}>4. Event Logs ({logs.length})</Text>
+        <Text style={styles.sectionTitle}>Eventos ({logs.length})</Text>
         <ScrollView ref={logsRef} style={styles.rawBox} nestedScrollEnabled>
           {logs.length === 0 ? (
             <Text style={styles.mono}>(esperando eventos...)</Text>
@@ -263,5 +311,15 @@ const styles = StyleSheet.create({
     fontFamily: 'monospace',
     fontSize: 11,
     lineHeight: 16,
+  },
+  // Barra inferior en la vista de juego
+  statusBar: {
+    backgroundColor: '#0f172a',
+    paddingVertical: 4,
+    alignItems: 'center',
+  },
+  statusBarText: {
+    color: '#64748b',
+    fontSize: 10,
   },
 });
