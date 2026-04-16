@@ -1,7 +1,6 @@
 {
   "extends": "@dado-triple/typescript-config/react-native.json",
   "compilerOptions": {
-    "baseUrl": ".",
     "noEmit": true
   },
   "include": ["src/**/*.ts", "src/**/*.tsx"]
