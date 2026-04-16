@@ -13,6 +13,7 @@
   "dependencies": {
     "@dado-triple/game-logic": "workspace:*",
     "@dado-triple/shared-types": "workspace:*",
+    "@dado-triple/ui": "workspace:*",
     "lucide-react": "latest",
     "next": "latest",
     "react": "latest",
